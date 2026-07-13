@@ -1,0 +1,13 @@
+# Build artifacts
+rust/target/
+
+# Cloned reference repositories (not part of the project)
+zecd/
+zaino/
+lightwalletd/
+
+# Data directories
+zfa-data/
+
+# Environment
+.env
