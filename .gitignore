@@ -8,6 +8,7 @@ lightwalletd/
 
 # Data directories
 zfa-data/
+zns-data/
 
 # Environment
 .env
