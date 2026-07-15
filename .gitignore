@@ -19,3 +19,7 @@ node_modules/
 dist/
 .next/
 .turbo/
+
+# Dev test scripts
+auth/get-otp.ts
+auth/query.ts

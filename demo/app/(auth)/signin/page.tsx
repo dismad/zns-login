@@ -329,7 +329,35 @@ function LegacyEmailSignIn({ callbackUrl, reason }: { callbackUrl: string; reaso
 
   return (
     <div className="mx-auto max-w-md p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Sign in</h1>
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-extrabold tracking-tight">Welcome to PGPZ</h1>
+        <p className="text-muted-foreground mt-2">Sign in to manage your profile and access the community.</p>
+      </div>
+
+      <div className="pb-6 border-b border-zinc-200 dark:border-zinc-800 mb-6">
+        <Button 
+          type="button"
+          onClick={() => signIn("zcashme", { callbackUrl })}
+          className="w-full bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-black font-bold text-lg h-14 rounded-xl shadow-xl transition-all hover:scale-[1.02] flex items-center justify-center gap-3 border border-yellow-300"
+        >
+          <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="M8 11h8"/>
+            <path d="M10 8l4 6"/>
+          </svg>
+          Continue with ZcashMe
+        </Button>
+      </div>
+
+      <div className="relative mb-6">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t border-zinc-200 dark:border-zinc-800" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-background px-2 text-muted-foreground">Or continue with email</span>
+        </div>
+      </div>
+
       {reason === "wallet-unlinked" && (
         <Alert>
           <Info className="h-4 w-4" />

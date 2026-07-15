@@ -281,11 +281,35 @@ useEffect(() => {
       )}
       <section className="rounded-lg border p-6 shadow-sm space-y-6">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold">Profile information</h2>
-          <p className="text-sm text-muted-foreground">
-            Keep your contact information current so we can share community updates.
+          <h2 className="text-2xl font-bold">Finish setting up your profile</h2>
+          <p className="text-sm text-muted-foreground mt-1 mb-6">
+            We imported your ZcashMe profile! Please verify your information below.
           </p>
         </div>
+
+        <div className="flex items-center gap-6 bg-zinc-50/50 p-4 rounded-xl border border-zinc-100 mb-6">
+          <div className="w-20 h-20 rounded-full bg-zinc-100 border-2 border-zinc-200 overflow-hidden shrink-0 shadow-sm flex items-center justify-center">
+            {sessionUser?.image ? (
+              <img src={sessionUser.image} alt="Avatar" className="w-full h-full object-cover" />
+            ) : (
+              <svg className="w-10 h-10 text-zinc-400" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            )}
+          </div>
+          <div className="w-full space-y-2">
+            <label className="text-sm font-bold text-zinc-700 flex items-center gap-1.5">
+              ZcashMe Link
+              <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+            </label>
+            <input
+              disabled
+              value={`zcash.me/${sessionUser?.name && sessionUser.name !== sessionUser.id ? sessionUser.name : "username"}`}
+              className="w-full rounded-md border border-zinc-300 bg-zinc-100 px-3 py-2 text-sm text-zinc-500 font-mono cursor-not-allowed shadow-inner"
+            />
+          </div>
+        </div>
+
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="space-y-2">

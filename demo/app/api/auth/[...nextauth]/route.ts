@@ -26,9 +26,9 @@ if (!process.env.NEXTAUTH_URL && NEXTAUTH_URL) {
 }
 
 export const authOptions = {
-  adapter: DynamoDBAdapter(documentClient as any, {
-    tableName: TABLE_NAME,
-  }),
+// adapter: DynamoDBAdapter(documentClient as any, {
+//   tableName: TABLE_NAME,
+// }),
   session: { strategy: "jwt" as const },
   providers: [
     {
@@ -37,21 +37,35 @@ export const authOptions = {
       type: "oauth",
       wellKnown: "https://auth.zcash.me/.well-known/openid-configuration",
       clientId: "pgpz",
+      clientSecret: "none", // NextAuth sometimes requires this field even with PKCE
       client: {
         token_endpoint_auth_method: "none",
       },
       authorization: { params: { scope: "openid email profile" } },
-      idToken: true,
       checks: ["pkce", "state"],
-      profile(profile: any) {
+      async profile(profile: any, tokens: any) {
+        if (!profile.name || profile.name === profile.sub) {
+          try {
+            const res = await fetch("https://auth.zcash.me/me", {
+              headers: { Authorization: `Bearer ${tokens.access_token}` }
+            });
+            if (res.ok) {
+              const data = await res.json();
+              profile = { ...profile, ...data };
+            }
+          } catch (e) {
+            console.error("Failed to fetch ZcashMe userinfo:", e);
+          }
+        }
         return {
           id: profile.sub,
-          name: profile.name || profile.sub,
-          email: profile.email,
+          name: profile.name || profile.preferred_username || profile.sub,
+          email: profile.email || `${profile.sub}@zcash.me`,
+          image: profile.picture || null,
         }
       },
     },
-    EmailProvider({
+    /* EmailProvider({
       // Build a robust Nodemailer config from env
       server: (() => {
         // Preferred: discrete vars
@@ -89,7 +103,7 @@ export const authOptions = {
         return undefined as any;
       })(),
       from: EMAIL_FROM,
-    }),
+    }), */
     CredentialsProvider({
       name: "Ethereum",
       credentials: {
@@ -255,6 +269,8 @@ export const authOptions = {
           (session.user as any).lastEmailType = null;
           (session.user as any).emailBounceReason = null;
           (session.user as any).emailSuppressed = null;
+          (session.user as any).name = token.name;
+          (session.user as any).image = token.picture;
         }
       } catch (e) {
         console.error("session callback: failed to load wallets", e);
