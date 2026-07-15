@@ -1,0 +1,450 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import type { MembershipSummary } from "@/lib/membership-server";
+import { fetchMembershipStateSnapshot } from "@/app/actions/membership-state";
+
+export default function ProfileSettingsPage() {
+  const { data: session, status, update } = useSession();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const ready = status !== "loading";
+  const authenticated = status === "authenticated";
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [xHandle, setXHandle] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [emailMessage, setEmailMessage] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSubmitting, setEmailSubmitting] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [initial, setInitial] = useState<
+    { firstName: string; lastName: string; xHandle: string; linkedinUrl: string } | null
+  >(null);
+
+  const sessionUser = session?.user as any | undefined;
+  const currentEmail = typeof sessionUser?.email === "string" ? sessionUser.email : "";
+  const wallets = useMemo(() => {
+    const list = sessionUser?.wallets;
+    return Array.isArray(list) ? list.map((item) => String(item)) : [];
+  }, [sessionUser]);
+  const walletAddress = sessionUser?.walletAddress as string | undefined;
+  const sessionMembershipSummary = sessionUser?.membershipSummary as MembershipSummary | null | undefined;
+  const membershipAddresses = useMemo(() => {
+    const sources = wallets && wallets.length ? wallets : walletAddress ? [walletAddress] : [];
+    return Array.from(
+      new Set(
+        sources
+          .map((addr) => String(addr).trim().toLowerCase())
+          .filter((addr) => addr.length > 0),
+      ),
+    );
+  }, [walletAddress, wallets]);
+  const membershipAddressesKey = useMemo(() => membershipAddresses.join(","), [membershipAddresses]);
+
+  useEffect(() => {
+    if (!authenticated || !sessionUser) return;
+    const u: any = sessionUser || {};
+    setFirstName(u.firstName || "");
+    setLastName(u.lastName || "");
+    setXHandle(u.xHandle || "");
+    setLinkedinUrl(u.linkedinUrl || "");
+    setNewEmail(currentEmail || "");
+    setInitial({
+      firstName: (u.firstName as string) || "",
+      lastName: (u.lastName as string) || "",
+      xHandle: (u.xHandle as string) || "",
+      linkedinUrl: (u.linkedinUrl as string) || "",
+    });
+  }, [authenticated, sessionUser, currentEmail]);
+
+  useEffect(() => {
+    // Prefetch home route assets to reduce navigation lag back to Home.
+    try {
+      router.prefetch("/");
+    } catch {
+      // ignore prefetch errors
+    }
+  }, [router]);
+
+useEffect(() => {
+  if (!authenticated) return;
+  if (!membershipAddresses.length) return;
+  if (sessionMembershipSummary) return;
+  const fetchMembership = async () => {
+      try {
+        await fetchMembershipStateSnapshot({ addresses: membershipAddresses, forceRefresh: true });
+      } catch (err) {
+        console.error("Profile membership fetch failed", err);
+      }
+    };
+    void fetchMembership();
+}, [authenticated, membershipAddresses, sessionMembershipSummary]);
+
+// Prefetch home data to speed up navigation back to Home.
+useEffect(() => {
+  if (!authenticated) return;
+    if (!membershipAddressesKey) return;
+    const controller = new AbortController();
+    const prefetch = async () => {
+      try {
+        const res = await fetch(`/api/nfts?addresses=${encodeURIComponent(membershipAddressesKey)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const payload = await res.json();
+        queryClient.setQueryData(["nfts", membershipAddressesKey], {
+          creatorNfts: Array.isArray(payload?.nfts) ? payload.nfts : [],
+          missedNfts: Array.isArray(payload?.missed) ? payload.missed : [],
+          upcomingNfts: Array.isArray(payload?.upcoming) ? payload.upcoming : [],
+          error: typeof payload?.error === "string" && payload.error.length ? payload.error : null,
+        });
+      } catch {
+        // ignore prefetch errors
+      }
+    };
+    void prefetch();
+  return () => controller.abort();
+}, [authenticated, membershipAddressesKey, queryClient]);
+
+// Prefetch membership snapshot into React Query so Home can hydrate instantly.
+useEffect(() => {
+  if (!authenticated) return;
+  if (!membershipAddressesKey) return;
+  if (!sessionMembershipSummary) return;
+  queryClient.setQueryData(
+    ["membership", membershipAddressesKey],
+    {
+      summary: sessionMembershipSummary,
+      allowances: {},
+      tokenIds: {},
+      includesAllowances: false,
+      includesTokenIds: false,
+    },
+    { updatedAt: Date.now() },
+  );
+}, [authenticated, membershipAddressesKey, queryClient, sessionMembershipSummary]);
+
+  const onSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setMessage(null);
+    setError(null);
+    try {
+      if (!firstName.trim()) throw new Error("First name is required");
+      if (!lastName.trim()) throw new Error("Last name is required");
+      if (linkedinUrl.trim()) {
+        try {
+          const url = new URL(linkedinUrl.trim());
+          if (!/^https?:$/.test(url.protocol)) throw new Error();
+        } catch {
+          throw new Error("LinkedIn URL must be http(s)");
+        }
+      }
+      const res = await fetch("/api/profile/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          xHandle: xHandle.trim(),
+          linkedinUrl: linkedinUrl.trim(),
+        }),
+      });
+      if (!res.ok) {
+        let detail: any = undefined;
+        try {
+          detail = await res.json();
+        } catch {}
+        throw new Error(detail?.error || res.statusText || "Update failed");
+      }
+      setMessage("Profile updated");
+      await update({});
+      setInitial({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        xHandle: xHandle.trim(),
+        linkedinUrl: linkedinUrl.trim(),
+      });
+    } catch (e: any) {
+      setError(e?.message || "Unexpected error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const isDirty = () => {
+    if (!initial) return false;
+    const current = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      xHandle: xHandle.trim(),
+      linkedinUrl: linkedinUrl.trim(),
+    };
+    return (
+      current.firstName !== (initial.firstName || "") ||
+      current.lastName !== (initial.lastName || "") ||
+      current.xHandle !== (initial.xHandle || "") ||
+      current.linkedinUrl !== (initial.linkedinUrl || "")
+    );
+  };
+
+  const onRequestEmailChange = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setEmailSubmitting(true);
+    setEmailMessage(null);
+    setEmailError(null);
+    try {
+      const target = newEmail.trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!target || !emailRegex.test(target)) {
+        throw new Error("Enter a valid email address.");
+      }
+      if (currentEmail && target === currentEmail.toLowerCase()) {
+        throw new Error("Enter a different email to change it.");
+      }
+      const res = await fetch("/api/profile/request-email-change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: target }),
+      });
+      if (!res.ok) {
+        let detail: any = undefined;
+        try {
+          detail = await res.json();
+        } catch {}
+        throw new Error(detail?.error || res.statusText || "Failed to send verification email");
+      }
+      setEmailMessage("Check your new email for a confirmation link. We will switch your account after you verify.");
+    } catch (err: any) {
+      setEmailError(err?.message || "Failed to start email change");
+    } finally {
+      setEmailSubmitting(false);
+    }
+  };
+
+
+  const handleBack = () => {
+    if (isDirty()) {
+      const proceed = confirm("You have unsaved changes. Leave without saving?");
+      if (!proceed) return;
+    }
+    router.push("/");
+  };
+
+  if (!ready) {
+    return <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>;
+  }
+
+  if (!authenticated) {
+    return (
+      <div className="space-y-4">
+        <p>You need to sign in to edit your profile.</p>
+        <Button onClick={() => router.push("/signin?callbackUrl=/settings/profile")}>
+          Sign in
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={handleBack}>
+          ← Back to Home
+        </Button>
+      </div>
+      {message && (
+        <Alert>
+          <CheckCircle2 className="h-4 w-4" />
+          <AlertTitle>Success</AlertTitle>
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+      )}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <section className="rounded-lg border p-6 shadow-sm space-y-6">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Profile information</h2>
+          <p className="text-sm text-muted-foreground">
+            Keep your contact information current so we can share community updates.
+          </p>
+        </div>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="firstName" className="text-sm font-medium">
+                First name
+              </label>
+              <input
+                id="firstName"
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                required
+                className="w-full rounded-md border px-3 py-2 text-sm dark:border-input dark:bg-input/30"
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="lastName" className="text-sm font-medium">
+                Last name
+              </label>
+              <input
+                id="lastName"
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+                required
+                className="w-full rounded-md border px-3 py-2 text-sm dark:border-input dark:bg-input/30"
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="xHandle" className="text-sm font-medium">
+              X handle (optional)
+            </label>
+            <input
+              id="xHandle"
+              value={xHandle}
+              onChange={(event) => setXHandle(event.target.value)}
+              placeholder="@handle"
+              className="w-full rounded-md border px-3 py-2 text-sm dark:border-input dark:bg-input/30"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="linkedin" className="text-sm font-medium">
+              LinkedIn URL (optional)
+            </label>
+            <input
+              id="linkedin"
+              value={linkedinUrl}
+              onChange={(event) => setLinkedinUrl(event.target.value)}
+              placeholder="https://www.linkedin.com/in/username"
+              className="w-full rounded-md border px-3 py-2 text-sm dark:border-input dark:bg-input/30"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+        </form>
+      </section>
+
+
+      <section className="rounded-lg border p-6 shadow-sm space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Email</h2>
+          <p className="text-sm text-muted-foreground">
+            Current email: {currentEmail ? <span className="font-mono">{currentEmail}</span> : "Not set"}.
+            We’ll send a confirmation link to the new address before switching your account.
+          </p>
+        </div>
+        {emailMessage ? (
+          <Alert>
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertTitle>Verification sent</AlertTitle>
+            <AlertDescription>{emailMessage}</AlertDescription>
+          </Alert>
+        ) : null}
+        {emailError ? (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{emailError}</AlertDescription>
+          </Alert>
+        ) : null}
+        <form onSubmit={onRequestEmailChange} className="space-y-3">
+          <div className="space-y-2">
+            <label htmlFor="newEmail" className="text-sm font-medium">
+              New email
+            </label>
+            <input
+              id="newEmail"
+              type="email"
+              value={newEmail}
+              onChange={(event) => setNewEmail(event.target.value)}
+              placeholder="you@example.com"
+              className="w-full rounded-md border px-3 py-2 text-sm dark:border-input dark:bg-input/30"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={emailSubmitting}>
+              {emailSubmitting ? "Sending…" : "Send verification link"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            After you click the link we send, you may need to sign in again with the new email.
+          </p>
+        </form>
+      </section>
+
+      <section className="rounded-lg border p-6 shadow-sm space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Linked wallets</h2>
+          <p className="text-sm text-muted-foreground">
+            Connected wallets grant access to gated content and enable on-chain renewals.
+          </p>
+        </div>
+        {wallets.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No wallets linked.</p>
+        ) : (
+          <ul className="space-y-2">
+            {wallets.map((wallet) => (
+              <li
+                key={wallet}
+                className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+              >
+                <code className="break-all text-xs">{wallet}</code>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    if (
+                      !confirm(
+                        "Unlink this wallet? You may lose access to gated content until you link again."
+                      )
+                    )
+                      return;
+                    try {
+                      const res = await fetch("/api/auth/unlink-wallet", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ address: wallet }),
+                      });
+                      if (!res.ok) {
+                        let detail: any = undefined;
+                        try {
+                          detail = await res.json();
+                        } catch {}
+                        throw new Error(detail?.error || res.statusText || "Unlink failed");
+                      }
+                      await update({});
+                    } catch (err: any) {
+                      alert(err?.message || "Unlink failed");
+                    }
+                  }}
+                >
+                  Unlink
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
