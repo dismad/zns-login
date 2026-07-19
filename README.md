@@ -74,7 +74,7 @@ To run the demo locally:
 ```bash
 cd demo
 pnpm install
-pnpm run dev -p 3000
+pnpm run dev -- -p 3000
 ```
 Navigate to `http://localhost:3000/identityTest` to see the flow in action.
 
